@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Playlist - GitHub Pages</title>
+    <title>YouTube Playlist</title>
     <style>
         body { font-family: Arial, sans-serif; background:#0f0f0f; color:#fff; margin:0; padding:0; }
         .container { padding: 15px; max-width: 100%; }
@@ -11,11 +11,19 @@
         .player iframe { position:absolute; top:0; left:0; width:100%; height:100%; }
         form { display:flex; gap:8px; margin:15px 0; }
         input[type=text] { flex:1; padding:14px; border:none; border-radius:6px; background:#333; color:white; font-size:16px; }
-        button { padding:14px 20px; background:#ff0000; color:white; border:none; border-radius:6px; cursor:pointer; }
-        .list li { background:#1f1f1f; margin:8px 0; padding:12px; border-radius:8px; display:flex; align-items:center; }
-        .list a { flex:1; color:#fff; text-decoration:none; }
-        .delete { color:#ff4444; background:#333; padding:6px 12px; border-radius:4px; text-decoration:none; }
-        .success { background:#004d00; padding:10px; border-radius:6px; margin:10px 0; }
+        button { padding:12px 18px; background:#ff0000; color:white; border:none; border-radius:6px; cursor:pointer; font-size:15px; }
+        
+        .list li { background:#1f1f1f; margin:8px 0; padding:12px; border-radius:8px; display:flex; align-items:center; gap:10px; }
+        .list a { flex:1; color:#fff; text-decoration:none; font-size:15px; }
+        .delete { 
+            color:#ff4444; background:#333; width:28px; height:28px; 
+            display:flex; align-items:center; justify-content:center; 
+            border-radius:50%; font-size:18px; flex-shrink:0;
+        }
+        .backup-btn { background:#0066cc; margin:5px; }
+        .success, .error { padding:10px; border-radius:6px; margin:10px 0; }
+        .success { background:#004d00; }
+        .error { background:#660000; }
     </style>
 </head>
 <body>
@@ -24,30 +32,38 @@
     
     <div id="message"></div>
 
-    <!-- Player -->
     <div id="player" class="player" style="display:none;">
-        <iframe id="ytplayer" frameborder="0" allowfullscreen allow="autoplay"></iframe>
+        <iframe id="ytplayer" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
     </div>
 
-    <!-- Form thêm -->
     <form id="addForm">
-        <input type="text" id="urlInput" placeholder="Dán link YouTube vào đây..." required>
+        <input type="text" id="urlInput" placeholder="Dán link YouTube..." required>
         <button type="submit">➕ Thêm</button>
     </form>
+
+    <div style="margin:10px 0;">
+        <button class="backup-btn" onclick="exportPlaylist()">📤 Xuất dsbaihat.txt</button>
+        <button class="backup-btn" onclick="document.getElementById('importFile').click()">📥 Nhập file</button>
+        <input type="file" id="importFile" accept=".txt" style="display:none;" onchange="importPlaylist(event)">
+    </div>
 
     <h3>Danh sách bài hát (<span id="count">0</span>)</h3>
     <ul id="playlist" class="list"></ul>
 
-    <p style="text-align:center; color:#888; margin-top:30px; font-size:14px;">
-        💡 Dùng Safari trên iPhone → Nhấn <b>aA</b> → Request Desktop Website để chơi nền tốt hơn
+    <p style="text-align:center; color:#888; margin-top:20px; font-size:14px;">
+        💡 Safari → aA → Request Desktop Website
     </p>
 </div>
 
 <script>
-// Lưu danh sách vào localStorage
 let playlist = JSON.parse(localStorage.getItem('youtubePlaylist')) || [];
 
-// Render danh sách
+function getVideoId(url) {
+    const regex = /(?:v=|youtu\.be\/|embed\/)([^&\n?#]+)/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
+}
+
 function renderPlaylist() {
     const ul = document.getElementById('playlist');
     const count = document.getElementById('count');
@@ -57,77 +73,99 @@ function renderPlaylist() {
     playlist.forEach((item, index) => {
         const li = document.createElement('li');
         li.innerHTML = `
-            <a href="#" onclick="playVideo(${index}); return false;">
-                ${item.title}
-            </a>
-            <a href="#" class="delete" onclick="deleteVideo(${index}); return false;">Xóa</a>
+            <a href="#" onclick="playVideo(${index}); return false;">${item.title}</a>
+            <a href="#" class="delete" onclick="deleteVideo(${index}); return false;">✕</a>
         `;
         ul.appendChild(li);
     });
 }
 
-// Lấy tiêu đề video
 async function getVideoTitle(url) {
+    const id = getVideoId(url);
+    if (!id) return "YouTube Video";
     try {
-        const videoId = url.match(/(?:v=|youtu\.be\/|embed\/)([^&\n?#]+)/)?.[1];
-        if (!videoId) return "YouTube Video";
-        
-        const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
-        const data = await response.json();
-        return data.title || "YouTube Video";
-    } catch (e) {
-        return "YouTube Video";
-    }
+        const res = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
+        if (res.ok) {
+            const data = await res.json();
+            return data.title;
+        }
+    } catch(e){}
+    return "YouTube Video";
 }
 
-// Thêm bài hát
-document.getElementById('addForm').addEventListener('submit', async function(e) {
+// Thêm bài
+document.getElementById('addForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const urlInput = document.getElementById('urlInput');
-    let url = urlInput.value.trim();
+    let url = document.getElementById('urlInput').value.trim();
+    const id = getVideoId(url);
+    if (!id) return showMessage('❌ Link không hợp lệ', 'error');
 
-    if (!url) return;
-
-    // Chuẩn hóa link
-    if (url.includes('youtu.be')) {
-        const id = url.split('youtu.be/')[1].split('?')[0];
-        url = `https://www.youtube.com/watch?v=${id}`;
-    }
-
+    url = `https://www.youtube.com/watch?v=${id}`;
     const title = await getVideoTitle(url);
-    
-    playlist.push({ url: url, title: title });
+
+    playlist.push({url, title, id});
     localStorage.setItem('youtubePlaylist', JSON.stringify(playlist));
-    
-    document.getElementById('message').innerHTML = '<p class="success">✅ Đã thêm bài hát!</p>';
-    urlInput.value = '';
+    showMessage('✅ Đã thêm!', 'success');
+    document.getElementById('urlInput').value = '';
     renderPlaylist();
-    
-    setTimeout(() => document.getElementById('message').innerHTML = '', 3000);
 });
 
-// Xóa bài
+function showMessage(text, type) {
+    const div = document.getElementById('message');
+    div.innerHTML = `<p class="${type}">${text}</p>`;
+    setTimeout(() => div.innerHTML = '', 3000);
+}
+
 function deleteVideo(index) {
-    if (confirm('Xóa bài hát này?')) {
+    if (confirm('Xóa bài này?')) {
         playlist.splice(index, 1);
         localStorage.setItem('youtubePlaylist', JSON.stringify(playlist));
         renderPlaylist();
     }
 }
 
-// Chơi video
 function playVideo(index) {
-    const video = playlist[index];
-    const videoId = video.url.match(/(?:v=|youtu\.be\/)([^&\n?#]+)/)?.[1];
-    
-    if (videoId) {
-        document.getElementById('player').style.display = 'block';
-        document.getElementById('ytplayer').src = 
-            `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`;
-    }
+    const vid = playlist[index];
+    document.getElementById('player').style.display = 'block';
+    document.getElementById('ytplayer').src = `https://www.youtube.com/embed/${vid.id}?autoplay=1&rel=0`;
 }
 
-// Khởi động
+// Export thành dsbaihat.txt
+function exportPlaylist() {
+    if (playlist.length === 0) {
+        showMessage('Danh sách trống!', 'error');
+        return;
+    }
+    const content = playlist.map(item => item.url).join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'dsbaihat.txt';
+    a.click();
+    showMessage('✅ Đã tải file dsbaihat.txt', 'success');
+}
+
+// Import file dsbaihat.txt
+async function importPlaylist(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const text = await file.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    
+    for (const url of lines) {
+        const id = getVideoId(url);
+        if (id && !playlist.some(item => item.id === id)) {
+            const title = await getVideoTitle(url);
+            playlist.push({url: `https://www.youtube.com/watch?v=${id}`, title, id});
+        }
+    }
+    
+    localStorage.setItem('youtubePlaylist', JSON.stringify(playlist));
+    renderPlaylist();
+    showMessage('✅ Đã nhập danh sách từ file!', 'success');
+}
+
 renderPlaylist();
 </script>
 </body>
